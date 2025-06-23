@@ -13,7 +13,7 @@ services:
       # NO-VNC WEB
       - 5801:5800
       # Game
-      - 1314:24642/udp
+      - 24642:24642/udp
     volumes:
       - ./valley_saves:/config/xdg/config/StardewValley/Saves
       - ./docker/mods/:/data/mods/
