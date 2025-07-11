@@ -1,0 +1,16 @@
+{
+  "MaxStackSize": 9999,
+  "Trinkets": true,
+  "Rings": true,
+  "Tools": true,
+  "Weapons": true,
+  "Furniture": true,
+  "Tackle": true,
+  "Boots": true,
+  "Clothing": true,
+  "Wallpaper": true,
+  "Hats": true,
+  "EnableComplexPatches": true,
+  "ColorMergeKey": "F10",
+  "QualityReduceKey": "F9"
+}

@@ -1,0 +1,19 @@
+version: '2.2'
+
+services:
+  valley:
+    build: docker
+    container_name: stardew
+    image: stardew-multiplayer:debian-11-v3.5.8
+    environment:
+      - "VNC_PASSWORD=CRUD"
+    ports:
+      # VNC
+      - 5902:5900
+      # NO-VNC WEB
+      - 5801:5800
+      # Game
+      - 24642:24642/udp
+    volumes:
+      - ./valley_saves:/config/xdg/config/StardewValley/Saves
+      - ./docker/mods/:/data/mods/

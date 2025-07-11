@@ -1,0 +1,69 @@
+
+FROM jlesage/baseimage-gui:ubuntu-22.04-v4.7.1
+
+ENV APP_NAME="StardewValley"
+ENV TZ="Asia/Hong_Kong"
+ENV TERM="xterm"
+ENV WEB_AUDIO="1"
+ENV TAKE_CONFIG_OWNERSHIP="1"
+ENV XDG_DATA_HOME="/config/xdg/data"
+ENV XDG_CONFIG_HOME="/config/xdg/config"
+ENV XDG_CACHE_HOME="/config/xdg/cache"
+# ENV XDG_STATE_HOME="/config/xdg/state"
+ENV DARK_MODE="1"
+
+ENV STARDEW_VERSION="1.6.15"
+ENV SMAPI_VERSION="4.1.10"
+ENV STARDEW_PATH="/data/stardew"
+ENV SMAPI_PATH="/data/smapi"
+
+COPY Stardew_${STARDEW_VERSION}.tar.gz ${STARDEW_PATH}_${STARDEW_VERSION}.tar.gz
+COPY SMAPI-${SMAPI_VERSION}-installer.zip ${SMAPI_PATH}_${SMAPI_VERSION}.zip
+
+RUN <<-EOF_RUN
+
+ln -sf /usr/share/zoneinfo/${TZ} /etc/localtime
+echo "${TZ}" > /etc/timezone
+cat >> ~/.bashrc << 'EOF'
+PS1='\n$(E=$?;[[ $E -ne 0 ]]&&echo -e "\e[2mExit status: \e[0;91m$E\n\e[m")\[\e[1;34m\]>\[\e[m\] \[\e[36m\]'`id -nu`'\[\e[m\]@\[\e[32m\]'`echo ${SSH_CONNECTION:-'  localhost'}|cut -d' ' -f3`'\[\e[m\]:\[\e[1;33m\]\w\[\e[m\] [\t]\n\[\e[1;31m\]\$\[\e[m\] '
+EOF
+
+EOF_RUN
+
+RUN <<-EOF_RUN
+
+set-cont-env APP_NAME="StardewValley"
+
+mv /etc/apt/sources.list /etc/apt/sources.list.bak
+echo "deb http://mirrors.cloud.tencent.com/ubuntu jammy main restricted universe multiverse" > /etc/apt/sources.list
+echo "deb http://mirrors.cloud.tencent.com/ubuntu jammy-updates main restricted universe multiverse" >> /etc/apt/sources.list
+echo "deb http://mirrors.cloud.tencent.com/ubuntu jammy-security main restricted universe multiverse" >> /etc/apt/sources.list
+echo "deb http://mirrors.cloud.tencent.com/ubuntu jammy-backports main restricted universe multiverse" >> /etc/apt/sources.list
+apt-get update
+apt-get install -y wget unzip xterm mono-runtime
+# apt-get clean
+# rm -rf /var/lib/apt/lists/*
+
+mkdir -p ${STARDEW_PATH} ${SMAPI_PATH} ${XDG_CONFIG_HOME}
+
+# wget https://eris.cc/Stardew_${STARDEW_VERSION}.tar.gz -O ${STARDEW_PATH}_${STARDEW_VERSION}.tar.gz
+echo "Extracting Stardew Valley ${STARDEW_VERSION}..."
+tar xf ${STARDEW_PATH}_${STARDEW_VERSION}.tar.gz -C ${STARDEW_PATH}
+# rm ${STARDEW_PATH}_${STARDEW_VERSION}.tar.gz
+
+# wget https://github.com/Pathoschild/SMAPI/releases/download/${SMAPI_VERSION}/SMAPI-${SMAPI_VERSION}-installer.zip -O ${SMAPI_PATH}_${SMAPI_VERSION}.zip
+unzip -qd ${SMAPI_PATH}/ ${SMAPI_PATH}_${SMAPI_VERSION}.zip
+# rm ${SMAPI_PATH}_${SMAPI_VERSION}.zip
+
+/bin/bash -c "SMAPI_NO_TERMINAL=true SMAPI_USE_CURRENT_SHELL=true echo -e \"2\n\n\" | ${SMAPI_PATH}/SMAPI\ ${SMAPI_VERSION}\ installer/internal/linux/SMAPI.Installer --install --game-path ${STARDEW_PATH}/Stardew\ Valley"
+
+echo "Setting permissions..."
+chmod +x ${STARDEW_PATH}/Stardew\ Valley/StardewValley
+chmod -R 777 ${STARDEW_PATH}/
+chown -R 1000:1000 ${STARDEW_PATH}
+
+EOF_RUN
+
+# CMD ["/bin/bash", "-l"]
+
+COPY docker-entrypoint.sh /startapp.sh
