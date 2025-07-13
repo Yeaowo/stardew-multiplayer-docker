@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <title>Stardew Valley - 虚拟键盘支持</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    
+    <!-- noVNC 样式 -->
+    <link rel="stylesheet" href="app/styles/base.css">
+    <link rel="stylesheet" href="app/styles/ui.css">
+    
+    <!-- 虚拟键盘样式 -->
+    <style>
+        .keyboard-container {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: rgba(0, 0, 0, 0.9);
+            backdrop-filter: blur(10px);
+            z-index: 9999;
+            padding: 10px;
+            border-top: 1px solid #333;
+            transform: translateY(100%);
+            transition: transform 0.3s ease;
+        }
+        
+        .keyboard-container.show {
+            transform: translateY(0);
+        }
+        
+        .keyboard-toggle {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 60px;
+            height: 60px;
+            font-size: 24px;
+            cursor: pointer;
+            z-index: 10000;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            transition: all 0.3s ease;
+        }
+        
+        .keyboard-toggle:hover {
+            background: #0056b3;
+            transform: scale(1.05);
+        }
+        
+        .simple-keyboard {
+            max-width: 100%;
+            margin: 0 auto;
+        }
+        
+        .simple-keyboard .hg-button {
+            background: #333;
+            color: white;
+            border: 1px solid #555;
+            border-radius: 4px;
+            margin: 2px;
+            padding: 8px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        
+        .simple-keyboard .hg-button:hover {
+            background: #555;
+            border-color: #777;
+        }
+        
+        .simple-keyboard .hg-button:active {
+            background: #007bff;
+            transform: scale(0.95);
+        }
+        
+        .keyboard-controls {
+            text-align: center;
+            margin-bottom: 10px;
+        }
+        
+        .keyboard-controls button {
+            background: #555;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 8px 16px;
+            margin: 0 5px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        
+        .keyboard-controls button:hover {
+            background: #777;
+        }
+        
+        .keyboard-controls button.active {
+            background: #007bff;
+        }
+        
+        /* 响应式设计 */
+        @media (max-width: 768px) {
+            .simple-keyboard .hg-button {
+                font-size: 12px;
+                padding: 6px;
+            }
+            
+            .keyboard-toggle {
+                width: 50px;
+                height: 50px;
+                font-size: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- noVNC 界面 -->
+    <div id="noVNC_container">
+        <div id="noVNC_status_bar">
+            <div id="noVNC_left_dummy_elem"></div>
+            <div id="noVNC_status">Loading</div>
+        </div>
+        
+        <div id="noVNC_screen">
+            <div id="noVNC_canvas_container">
+                <canvas id="noVNC_canvas" width="640" height="480" tabindex="1">
+                    Canvas not supported.
+                </canvas>
+            </div>
+        </div>
+        
+        <!-- 连接控制面板 -->
+        <div id="noVNC_controls">
+            <input type="text" id="noVNC_password" placeholder="密码" style="display: none;">
+            <button id="noVNC_connect_button">连接</button>
+            <button id="noVNC_disconnect_button" style="display: none;">断开连接</button>
+        </div>
+    </div>
+    
+    <!-- 虚拟键盘切换按钮 -->
+    <button id="keyboardToggle" class="keyboard-toggle" title="切换虚拟键盘">
+        ⌨️
+    </button>
+    
+    <!-- 虚拟键盘容器 -->
+    <div id="virtual-keyboard" class="keyboard-container">
+        <div class="keyboard-controls">
+            <button id="layoutDefault" class="active">默认</button>
+            <button id="layoutShift">Shift</button>
+            <button id="layoutNumbers">数字</button>
+            <button id="layoutSymbols">符号</button>
+            <button id="layoutChinese">中文</button>
+        </div>
+        <div id="simple-keyboard" class="simple-keyboard"></div>
+    </div>
+    
+    <!-- 引入 Simple Keyboard 库 -->
+    <script src="https://cdn.jsdelivr.net/npm/simple-keyboard@latest/build/index.js"></script>
+    
+    <!-- noVNC 核心库 -->
+    <script src="core/util.js"></script>
+    <script src="core/base64.js"></script>
+    <script src="core/websock.js"></script>
+    <script src="core/des.js"></script>
+    <script src="core/input/keysyms.js"></script>
+    <script src="core/input/keyboard.js"></script>
+    <script src="core/input/util.js"></script>
+    <script src="core/display.js"></script>
+    <script src="core/inflator.js"></script>
+    <script src="core/rfb.js"></script>
+    
+    <script>
+        // 全局变量
+        let rfb;
+        let keyboard;
+        let isKeyboardVisible = false;
+        let currentLayout = 'default';
+        
+        // 虚拟键盘布局定义
+        const keyboardLayouts = {
+            default: [
+                'q w e r t y u i o p {bksp}',
+                'a s d f g h j k l {enter}',
+                'z x c v b n m , . /',
+                '{shift} {space} {shift}'
+            ],
+            shift: [
+                'Q W E R T Y U I O P {bksp}',
+                'A S D F G H J K L {enter}',
+                'Z X C V B N M < > ?',
+                '{shift} {space} {shift}'
+            ],
+            numbers: [
+                '1 2 3 4 5 6 7 8 9 0 {bksp}',
+                '- = [ ] \\ ; \' {enter}',
+                '. / {space}'
+            ],
+            symbols: [
+                '! @ # $ % ^ & * ( ) {bksp}',
+                '_ + { } | : " {enter}',
+                '< > ? {space}'
+            ],
+            chinese: [
+                '你 好 世 界 游 戏 开 始 结 束 {bksp}',
+                '是 的 不 是 可 以 不 行 谢 谢 {enter}',
+                '朋 友 一 起 玩 很 好 {space}'
+            ]
+        };
+        
+        // 初始化函数
+        function init() {
+            // 初始化noVNC连接
+            initNoVNC();
+            
+            // 初始化虚拟键盘
+            initVirtualKeyboard();
+            
+            // 绑定事件
+            bindEvents();
+        }
+        
+        // 初始化 noVNC
+        function initNoVNC() {
+            const host = window.location.hostname;
+            const port = window.location.port || (window.location.protocol === 'https:' ? 443 : 80);
+            const password = 'CRUD'; // 从环境变量获取
+            
+            try {
+                rfb = new RFB(document.getElementById('noVNC_canvas'), 
+                    `ws${window.location.protocol === 'https:' ? 's' : ''}://${host}:${port}/websockify`);
+                
+                rfb.addEventListener("connect", connectedToServer);
+                rfb.addEventListener("disconnect", disconnectedFromServer);
+                rfb.addEventListener("credentialsrequired", credentialsRequired);
+                
+                // 设置质量和压缩
+                rfb.qualityLevel = 6;
+                rfb.compressionLevel = 2;
+                
+                // 更新状态
+                updateStatus("正在连接...");
+                
+            } catch (exc) {
+                updateStatus("连接失败: " + exc);
+            }
+        }
+        
+        // 初始化虚拟键盘
+        function initVirtualKeyboard() {
+            keyboard = new SimpleKeyboard.default({
+                onChange: input => handleKeyboardInput(input),
+                onKeyPress: button => handleKeyPress(button),
+                layout: {
+                    'default': keyboardLayouts.default,
+                    'shift': keyboardLayouts.shift,
+                    'numbers': keyboardLayouts.numbers,
+                    'symbols': keyboardLayouts.symbols,
+                    'chinese': keyboardLayouts.chinese
+                },
+                theme: "hg-theme-default hg-layout-default",
+                buttonTheme: [
+                    {
+                        class: "hg-red",
+                        buttons: "{bksp}"
+                    },
+                    {
+                        class: "hg-blue",
+                        buttons: "{shift} {enter} {space}"
+                    }
+                ],
+                display: {
+                    '{bksp}': '⌫',
+                    '{enter}': '↵',
+                    '{shift}': '⇧',
+                    '{space}': '空格',
+                    '{tab}': '⇥',
+                    '{lock}': '⇪',
+                    '{accept}': '✓',
+                    '{cancel}': '✗'
+                }
+            });
+        }
+        
+        // 绑定事件
+        function bindEvents() {
+            // 键盘切换按钮
+            document.getElementById('keyboardToggle').addEventListener('click', toggleKeyboard);
+            
+            // 布局切换按钮
+            document.getElementById('layoutDefault').addEventListener('click', () => switchLayout('default'));
+            document.getElementById('layoutShift').addEventListener('click', () => switchLayout('shift'));
+            document.getElementById('layoutNumbers').addEventListener('click', () => switchLayout('numbers'));
+            document.getElementById('layoutSymbols').addEventListener('click', () => switchLayout('symbols'));
+            document.getElementById('layoutChinese').addEventListener('click', () => switchLayout('chinese'));
+            
+            // 连接按钮
+            document.getElementById('noVNC_connect_button').addEventListener('click', connect);
+            document.getElementById('noVNC_disconnect_button').addEventListener('click', disconnect);
+            
+            // 阻止默认的右键菜单
+            document.addEventListener('contextmenu', e => e.preventDefault());
+        }
+        
+        // 处理虚拟键盘输入
+        function handleKeyboardInput(input) {
+            console.log("键盘输入:", input);
+        }
+        
+        // 处理按键按下
+        function handleKeyPress(button) {
+            console.log("按键按下:", button);
+            
+            if (!rfb) return;
+            
+            try {
+                switch(button) {
+                    case '{bksp}':
+                        rfb.sendKey(0xff08); // BackSpace
+                        break;
+                    case '{enter}':
+                        rfb.sendKey(0xff0d); // Enter
+                        break;
+                    case '{space}':
+                        rfb.sendKey(0x0020); // Space
+                        break;
+                    case '{shift}':
+                        // 切换到 shift 布局
+                        switchLayout(currentLayout === 'shift' ? 'default' : 'shift');
+                        break;
+                    case '{tab}':
+                        rfb.sendKey(0xff09); // Tab
+                        break;
+                    default:
+                        // 发送普通字符
+                        if (button.length === 1) {
+                            const keyCode = button.charCodeAt(0);
+                            rfb.sendKey(keyCode);
+                        }
+                        break;
+                }
+            } catch (error) {
+                console.error("发送按键失败:", error);
+            }
+        }
+        
+        // 切换键盘显示/隐藏
+        function toggleKeyboard() {
+            const keyboardContainer = document.getElementById('virtual-keyboard');
+            const toggleButton = document.getElementById('keyboardToggle');
+            
+            isKeyboardVisible = !isKeyboardVisible;
+            
+            if (isKeyboardVisible) {
+                keyboardContainer.classList.add('show');
+                toggleButton.innerHTML = '⌨️';
+                toggleButton.style.transform = 'rotate(180deg)';
+            } else {
+                keyboardContainer.classList.remove('show');
+                toggleButton.innerHTML = '⌨️';
+                toggleButton.style.transform = 'rotate(0deg)';
+            }
+        }
+        
+        // 切换键盘布局
+        function switchLayout(layout) {
+            currentLayout = layout;
+            keyboard.setOptions({
+                layoutName: layout
+            });
+            
+            // 更新按钮状态
+            document.querySelectorAll('.keyboard-controls button').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            document.getElementById('layout' + layout.charAt(0).toUpperCase() + layout.slice(1)).classList.add('active');
+        }
+        
+        // noVNC 连接事件
+        function connectedToServer(e) {
+            updateStatus("已连接");
+            document.getElementById('noVNC_connect_button').style.display = 'none';
+            document.getElementById('noVNC_disconnect_button').style.display = 'inline-block';
+        }
+        
+        function disconnectedFromServer(e) {
+            updateStatus("已断开连接");
+            document.getElementById('noVNC_connect_button').style.display = 'inline-block';
+            document.getElementById('noVNC_disconnect_button').style.display = 'none';
+        }
+        
+        function credentialsRequired(e) {
+            const password = prompt("请输入VNC密码:");
+            if (password) {
+                rfb.sendCredentials({ password: password });
+            }
+        }
+        
+        // 连接/断开连接
+        function connect() {
+            initNoVNC();
+        }
+        
+        function disconnect() {
+            if (rfb) {
+                rfb.disconnect();
+            }
+        }
+        
+        // 更新状态
+        function updateStatus(text) {
+            document.getElementById('noVNC_status').textContent = text;
+        }
+        
+        // 页面加载完成后初始化
+        window.addEventListener('load', init);
+        
+        // 处理窗口大小变化
+        window.addEventListener('resize', function() {
+            if (rfb) {
+                rfb.scaleViewport = true;
+            }
+        });
+    </script>
+</body>
+</html>

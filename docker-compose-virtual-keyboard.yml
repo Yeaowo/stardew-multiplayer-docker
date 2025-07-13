@@ -1,0 +1,91 @@
+version: '2.2'
+
+services:
+  valley:
+    build:
+      context: docker
+      dockerfile: Dockerfile.virtual-keyboard
+    container_name: stardew-virtual-keyboard
+    image: stardew-multiplayer:virtual-keyboard-v1.0.0
+    environment:
+      # VNC 设置
+      - "VNC_PASSWORD=CRUD"
+      
+      # 虚拟键盘设置
+      - "ENABLE_VIRTUAL_KEYBOARD=1"           # 启用虚拟键盘
+      - "VIRTUAL_KEYBOARD_LAYOUT=default"     # 默认键盘布局
+      
+      # 显示设置（优化移动设备）
+      - "DISPLAY_WIDTH=1280"                  # 显示宽度
+      - "DISPLAY_HEIGHT=720"                  # 显示高度
+      - "DISPLAY_MODE=scale"                  # 显示模式：scale, remote, none
+      
+      # 字体和语言设置
+      - "ENABLE_CJK_FONT=1"                   # 启用中文字体
+      - "LANG=zh_CN.UTF-8"                    # 中文语言环境
+      
+      # 优化设置
+      - "DARK_MODE=1"                         # 深色模式
+      - "KEEP_APP_RUNNING=1"                  # 应用崩溃时自动重启
+      - "APP_NICENESS=0"                      # 应用优先级
+      
+      # Web 界面设置
+      - "WEB_LISTENING_PORT=5800"             # Web 监听端口
+      - "VNC_LISTENING_PORT=5900"             # VNC 监听端口
+      
+      # 安全设置（可选）
+      - "SECURE_CONNECTION=0"                 # 如需HTTPS设置为1
+      - "VNC_PASSWORD=CRUD"                   # VNC密码
+      
+      # 时区设置
+      - "TZ=Asia/Shanghai"                    # 时区
+      
+    ports:
+      # VNC 端口
+      - "5902:5900"
+      # Web UI 端口（虚拟键盘界面）
+      - "5801:5800"
+      # 游戏端口
+      - "24642:24642/udp"
+    
+    volumes:
+      # 游戏存档目录
+      - ./valley_saves:/config/xdg/config/StardewValley/Saves
+      # 游戏模组目录
+      - ./docker/mods/:/data/mods/
+      # 配置目录（可选，用于持久化设置）
+      - ./config:/config
+    
+    # 资源限制（可选）
+    mem_limit: 2g
+    memswap_limit: 2g
+    
+    # 重启策略
+    restart: unless-stopped
+    
+    # 健康检查
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5800/", "||", "exit", "1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # 可选：添加 Redis 用于会话管理（高级功能）
+  # redis:
+  #   image: redis:6-alpine
+  #   container_name: stardew-redis
+  #   restart: unless-stopped
+  #   ports:
+  #     - "6379:6379"
+  #   volumes:
+  #     - ./redis-data:/data
+
+networks:
+  default:
+    driver: bridge
+
+volumes:
+  # 如果需要持久化 noVNC 配置
+  novnc-config:
+    driver: local

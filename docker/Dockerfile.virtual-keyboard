@@ -1,0 +1,131 @@
+# 基于现有的 Stardew Valley 镜像
+FROM stardew-multiplayer:debian-11-v3.5.8
+
+# 设置工作目录
+WORKDIR /tmp
+
+# 安装必要的依赖
+RUN apt-get update && apt-get install -y \
+    curl \
+    wget \
+    unzip \
+    && rm -rf /var/lib/apt/lists/*
+
+# 备份原始 noVNC 文件
+RUN cp -r /opt/noVNC /opt/noVNC_backup
+
+# 复制自定义的虚拟键盘界面
+COPY virtual-keyboard.html /opt/noVNC/vnc_keyboard.html
+
+# 创建启动脚本来使用虚拟键盘界面
+RUN cat > /opt/setup-virtual-keyboard.sh << 'EOF'
+#!/bin/bash
+
+# 检查是否启用虚拟键盘
+if [ "${ENABLE_VIRTUAL_KEYBOARD}" = "1" ]; then
+    echo "启用虚拟键盘功能..."
+    
+    # 创建虚拟键盘的符号链接
+    ln -sf /opt/noVNC/vnc_keyboard.html /opt/noVNC/vnc.html
+    
+    # 确保 noVNC 可以访问虚拟键盘库
+    mkdir -p /opt/noVNC/vendor/simple-keyboard
+    
+    # 下载 Simple Keyboard 库（如果需要本地化）
+    if [ ! -f "/opt/noVNC/vendor/simple-keyboard/index.js" ]; then
+        echo "下载 Simple Keyboard 库..."
+        wget -q -O /opt/noVNC/vendor/simple-keyboard/index.js \
+            https://cdn.jsdelivr.net/npm/simple-keyboard@latest/build/index.js || true
+    fi
+    
+    echo "虚拟键盘功能已启用"
+else
+    echo "使用默认 noVNC 界面"
+    # 恢复原始界面
+    if [ -f "/opt/noVNC_backup/vnc.html" ]; then
+        cp /opt/noVNC_backup/vnc.html /opt/noVNC/vnc.html
+    fi
+fi
+EOF
+
+# 使脚本可执行
+RUN chmod +x /opt/setup-virtual-keyboard.sh
+
+# 创建增强的启动脚本
+RUN cat > /opt/start-with-keyboard.sh << 'EOF'
+#!/bin/bash
+
+# 设置虚拟键盘
+/opt/setup-virtual-keyboard.sh
+
+# 启动原始的启动脚本
+exec /opt/start-game.sh "$@"
+EOF
+
+RUN chmod +x /opt/start-with-keyboard.sh
+
+# 创建自定义的 docker-entrypoint
+RUN cat > /startapp-keyboard.sh << 'EOF'
+#!/bin/bash
+
+# 设置错误处理
+set -e
+
+# 日志函数
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
+}
+
+# 设置虚拟键盘
+log "配置虚拟键盘..."
+/opt/setup-virtual-keyboard.sh
+
+# 修复权限问题
+fix_permissions() {
+    log "修复权限问题..."
+    
+    # 确保 /data/mods 目录存在且有正确权限
+    mkdir -p /data/mods
+    chmod -R 777 /data/mods
+    chown -R 1000:1000 /data/mods
+    
+    # 确保 SMAPI_BUILD_IN 目录存在
+    mkdir -p /data/mods/SMAPI_BUILD_IN
+    chmod -R 777 /data/mods/SMAPI_BUILD_IN
+    chown -R 1000:1000 /data/mods/SMAPI_BUILD_IN
+    
+    # 确保 noVNC 目录权限正确
+    chown -R 1000:1000 /opt/noVNC
+    chmod -R 755 /opt/noVNC
+    
+    log "权限修复完成"
+}
+
+# 启动 SMAPI 日志监控
+log "启动 SMAPI 日志监控..."
+/opt/tail-smapi-log.sh &
+
+# 修复权限
+fix_permissions
+
+# 使用增强的启动脚本
+log "启动游戏（包含虚拟键盘支持）..."
+exec /opt/start-with-keyboard.sh
+
+EOF
+
+# 使新的启动脚本可执行
+RUN chmod +x /startapp-keyboard.sh
+
+# 设置默认环境变量
+ENV ENABLE_VIRTUAL_KEYBOARD=1
+ENV VIRTUAL_KEYBOARD_LAYOUT=default
+ENV ENABLE_CJK_FONT=1
+
+# 设置标签
+LABEL maintainer="Stardew Valley Docker with Virtual Keyboard"
+LABEL description="Stardew Valley multiplayer server with noVNC virtual keyboard support"
+LABEL version="1.0.0"
+
+# 使用新的启动脚本
+CMD ["/startapp-keyboard.sh"]
